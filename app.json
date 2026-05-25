@@ -25,7 +25,8 @@
           "cameraPermission": "ZipCar necesita acceso a la cámara para agregar tu imagen de perfil.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

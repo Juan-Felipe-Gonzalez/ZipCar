@@ -381,7 +381,8 @@ export const globalStyles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    bottom: 95,
+    top: 70,
+    gap: 10,
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 18,
@@ -408,15 +409,65 @@ export const globalStyles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  locationText: {
-    fontSize: 15,
-    color: "#111",
-    fontWeight: "600",
-  },
-
+  
   locationPlaceholder: {
     fontSize: 15,
     color: "#777",
     fontWeight: "500",
+  },
+  placeAutocomplete: {
+    borderWidth: 1,
+    borderRadius: 10,
+    borderColor: "gray",
+    padding: 5,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+
+  vehicleModal: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 32,
+  },
+
+  vehicleOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 10,
+  },
+
+  vehicleOptionSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: "#F0FFF4",
+  },
+
+  vehicleOptionLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111111",
+  },
+
+  vehicleOptionPrice: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+
+  vehicleOptionMeta: {
+    fontSize: 12,
+    color: "#666666",
+    marginTop: 2,
   },
 });

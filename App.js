@@ -47,7 +47,7 @@ function RootNavigator() {
                 gender: normalizeGender(data.gender),
                 language: normalizeLanguage(data.language),
                 role: data.role || "client",
-              })
+              }),
             );
           } else {
             dispatch(
@@ -56,7 +56,7 @@ function RootNavigator() {
                 email: firebaseUser.email || "",
                 language: "es",
                 role: "client",
-              })
+              }),
             );
           }
         } catch (error) {
@@ -68,7 +68,7 @@ function RootNavigator() {
               email: firebaseUser.email || "",
               language: "es",
               role: "client",
-            })
+            }),
           );
         }
       } else {
@@ -83,7 +83,14 @@ function RootNavigator() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#000" }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "#000",
+        }}
+      >
         <ActivityIndicator size="large" color="#00C853" />
       </View>
     );
@@ -104,6 +111,19 @@ function RootNavigator() {
 }
 
 export default function App() {
+  if (typeof window !== "undefined") {
+    window.crypto = {
+      getRandomValues: (arr) => {
+        if (arr) {
+          for (let i = 0; i < arr.byteLength; i++) {
+            arr[i] = Math.floor(Math.random() * 256);
+          }
+        }
+        return arr;
+      },
+    };
+  }
+
   return (
     <Provider store={store}>
       <SafeAreaProvider>

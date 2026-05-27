@@ -6,12 +6,23 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Alert,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
+import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { useDispatch, useSelector } from "react-redux";
 
 import { COLORS, globalStyles } from "../styles/globalStyles";
+import { db } from "../config/firebase";
+import {
+  clearActiveTrip,
+  markTripPaidInProgress,
+  setActiveTrip,
+} from "../redux/slices/tripSlice";
+import { createPaymentPreference } from "../services/paymentService";
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
 import { decodePolyline } from "../utils/decodePolyline";
 import { fetchDirections } from "../utils/directionsApi";
@@ -24,14 +35,16 @@ import {
 
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? "";
 
-export default function RequestTripScreen() {
+export default function RequestTripScreen({ navigation }) {
+  const dispatch = useDispatch();
+  const activeTrip = useSelector((state) => state.trip.activeTrip);
+  const user = useSelector((state) => state.auth.user);
   const mapRef = useRef(null);
   const [location, setLocation] = useState(null);
   const [originAddress, setOriginAddress] = useState("");
   const [originLocation, setOriginLocation] = useState(null);
   const [destinationAddress, setDestinationAddress] = useState("");
   const [destinationLocation, setDestinationLocation] = useState(null);
-  const [tripInProgress, setTripInProgress] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState("economico");
   const [directionsRoute, setDirectionsRoute] = useState([]);
@@ -39,6 +52,8 @@ export default function RequestTripScreen() {
   const [baseFare, setBaseFare] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingEstimate, setLoadingEstimate] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [finishingTrip, setFinishingTrip] = useState(false);
 
   useEffect(() => {
     getCurrentLocation();
@@ -77,7 +92,7 @@ export default function RequestTripScreen() {
     setTimeAndDistance(null);
     setBaseFare(null);
     setShowVehicleModal(false);
-    setTripInProgress(false);
+    dispatch(clearActiveTrip());
 
     try {
       const directionsResult = await loadRoute();
@@ -147,9 +162,51 @@ export default function RequestTripScreen() {
     }
   };
 
-  const handleConfirmTrip = () => {
+  const getVehicleFare = (multiplier) => {
+    if (baseFare == null) return null;
+    return calculateVehicleFare(baseFare, multiplier);
+  };
+
+  const selectedVehicleOption = VEHICLE_OPTIONS.find(
+    (v) => v.id === selectedVehicle
+  );
+
+  const resetTripForm = () => {
+    setOriginAddress("");
+    setOriginLocation(null);
+    setDestinationAddress("");
+    setDestinationLocation(null);
+    setDirectionsRoute([]);
+    setTimeAndDistance(null);
+    setBaseFare(null);
+    setSelectedVehicle("economico");
     setShowVehicleModal(false);
-    setTripInProgress(true);
+  };
+
+  const handleConfirmTrip = () => {
+    if (!selectedVehicleOption || !timeAndDistance || baseFare == null) {
+      alert("No se pudo crear el viaje. Intenta calcular la ruta de nuevo.");
+      return;
+    }
+
+    const price = Math.round(
+      getVehicleFare(selectedVehicleOption.multiplier)
+    );
+
+    dispatch(
+      setActiveTrip({
+        origin: originAddress,
+        destination: destinationAddress,
+        vehicleType: selectedVehicleOption.label,
+        distance: timeAndDistance.distance,
+        duration: timeAndDistance.duration,
+        price,
+        status: "requested",
+        paymentStatus: "pending",
+        createdAt: Date.now(),
+      })
+    );
+    setShowVehicleModal(false);
   };
 
   const handleCloseVehicleModal = () => {
@@ -159,14 +216,85 @@ export default function RequestTripScreen() {
     setBaseFare(null);
   };
 
-  const getVehicleFare = (multiplier) => {
-    if (baseFare == null) return null;
-    return calculateVehicleFare(baseFare, multiplier);
+  const handlePayTrip = async () => {
+    if (!activeTrip || paying) return;
+
+    setPaying(true);
+
+    try {
+      const preference = await createPaymentPreference({
+        title: "Viaje ZipCar",
+        description: `Viaje de ${activeTrip.origin} a ${activeTrip.destination}`,
+        price: activeTrip.price,
+        quantity: 1,
+        userEmail: user?.email || "test_user@test.com",
+        origin: activeTrip.origin,
+        destination: activeTrip.destination,
+        vehicleType: activeTrip.vehicleType,
+      });
+
+      const paymentUrl =
+        preference?.sandbox_init_point || preference?.init_point;
+
+      if (!paymentUrl) {
+        throw new Error("No se recibio una URL de pago de Mercado Pago.");
+      }
+
+      await WebBrowser.openBrowserAsync(paymentUrl);
+      dispatch(markTripPaidInProgress());
+    } catch (error) {
+      console.log("PAYMENT ERROR:", error.message);
+      Alert.alert(
+        "Pago no disponible",
+        error.message ||
+          "No se pudo abrir Mercado Pago. Verifica que el backend Express este activo."
+      );
+    } finally {
+      setPaying(false);
+    }
   };
 
-  const selectedVehicleOption = VEHICLE_OPTIONS.find(
-    (v) => v.id === selectedVehicle
-  );
+  const handleFinishTrip = async () => {
+    if (!activeTrip || finishingTrip) return;
+
+    if (!user?.uid) {
+      Alert.alert("Sesion requerida", "Inicia sesion para guardar el viaje.");
+      return;
+    }
+
+    setFinishingTrip(true);
+
+    try {
+      await addDoc(collection(db, "trips"), {
+        userId: user.uid,
+        origin: activeTrip.origin,
+        destination: activeTrip.destination,
+        vehicleType: activeTrip.vehicleType,
+        distance: activeTrip.distance,
+        duration: activeTrip.duration,
+        price: activeTrip.price,
+        status: "completed",
+        paymentStatus: "paid",
+        createdAt: activeTrip.createdAt
+          ? new Date(activeTrip.createdAt)
+          : serverTimestamp(),
+        completedAt: serverTimestamp(),
+      });
+
+      Alert.alert("Viaje exitoso");
+      dispatch(clearActiveTrip());
+      resetTripForm();
+      navigation.getParent()?.navigate("HistoryTab");
+    } catch (error) {
+      console.log("FINISH TRIP ERROR:", error.message);
+      Alert.alert(
+        "No se pudo finalizar",
+        "Intenta de nuevo para guardar el viaje en el historial."
+      );
+    } finally {
+      setFinishingTrip(false);
+    }
+  };
 
   const moveCameraToLocation = (latitude, longitude) => {
     mapRef.current?.animateToRegion({
@@ -201,7 +329,7 @@ export default function RequestTripScreen() {
     }
   };
 
-  const showSearchCard = !tripInProgress && !showVehicleModal;
+  const showSearchCard = !activeTrip && !showVehicleModal;
 
   if (!location) {
     return (
@@ -293,27 +421,59 @@ export default function RequestTripScreen() {
         </View>
       )}
 
-      {tripInProgress && (
+      {activeTrip && (
         <View style={globalStyles.tripBottomCard}>
-          <Text style={globalStyles.cardTitle}>Viaje en curso</Text>
-          <Text style={globalStyles.bodyText}>
-            Vehículo: {selectedVehicleOption?.label}
+          <Text style={globalStyles.cardTitle}>
+            {activeTrip.status === "in_progress"
+              ? "Viaje en progreso"
+              : "Viaje solicitado"}
           </Text>
-          <Text style={globalStyles.bodyText}>Origen: {originAddress}</Text>
           <Text style={globalStyles.bodyText}>
-            Destino: {destinationAddress}
+            Vehiculo: {activeTrip.vehicleType}
           </Text>
-          {timeAndDistance && (
-            <Text style={globalStyles.bodyText}>
-              {timeAndDistance.distance} · {timeAndDistance.duration}
-              {baseFare != null &&
-                selectedVehicleOption &&
-                ` · ${formatFare(getVehicleFare(selectedVehicleOption.multiplier))}`}
-            </Text>
+          <Text style={globalStyles.bodyText}>
+            Origen: {activeTrip.origin}
+          </Text>
+          <Text style={globalStyles.bodyText}>
+            Destino: {activeTrip.destination}
+          </Text>
+          <Text style={globalStyles.bodyText}>
+            {activeTrip.distance} · {activeTrip.duration} ·{" "}
+            {formatFare(activeTrip.price)}
+          </Text>
+
+          {activeTrip.status === "in_progress" ? (
+            <>
+              <Text style={globalStyles.bodyText}>
+                Tu conductor se esta aproximando en tiempo real.
+              </Text>
+              <TouchableOpacity
+                style={globalStyles.button}
+                onPress={handleFinishTrip}
+                disabled={finishingTrip}
+              >
+                {finishingTrip ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={globalStyles.buttonText}>
+                    Finalizar viaje
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={globalStyles.button}
+              onPress={handlePayTrip}
+              disabled={paying}
+            >
+              {paying ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={globalStyles.buttonText}>Pagar</Text>
+              )}
+            </TouchableOpacity>
           )}
-          <Text style={globalStyles.bodyText}>
-            Tu conductor se está aproximando en tiempo real.
-          </Text>
         </View>
       )}
 

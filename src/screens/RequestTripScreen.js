@@ -14,7 +14,7 @@ import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { useDispatch, useSelector } from "react-redux";
-
+import { Ionicons } from "@expo/vector-icons";
 import { COLORS, globalStyles } from "../styles/globalStyles";
 import { db } from "../config/firebase";
 import {
@@ -32,8 +32,9 @@ import {
   calculateVehicleFare,
   formatFare,
 } from "../utils/fareUtils";
+import { useDriverSimulation } from "./../utils/useDriverSimultaion";
 
-const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? "";
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 export default function RequestTripScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -48,6 +49,7 @@ export default function RequestTripScreen({ navigation }) {
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState("economico");
   const [directionsRoute, setDirectionsRoute] = useState([]);
+  const [encodedPolyline, setEncodedPolyline] = useState(null);
   const [timeAndDistance, setTimeAndDistance] = useState(null);
   const [baseFare, setBaseFare] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -58,6 +60,17 @@ export default function RequestTripScreen({ navigation }) {
   useEffect(() => {
     getCurrentLocation();
   }, []);
+
+  useEffect(() => {
+    if (!driverPosition || !mapRef.current) return;
+    mapRef.current.animateCamera({
+      center: driverPosition,
+      heading: driverHeading,
+      pitch: 45, // vista inclinada tipo Waze
+      zoom: 17,
+      duration: 1000, // debe coincidir con el intervalMs del hook
+    });
+  }, [driverPosition]);
 
   const getCurrentLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -109,7 +122,7 @@ export default function RequestTripScreen({ navigation }) {
     const result = await fetchDirections(
       originLocation,
       destinationLocation,
-      GOOGLE_PLACES_API_KEY
+      GOOGLE_PLACES_API_KEY,
     );
 
     if (!result?.encodedPolyline) {
@@ -119,6 +132,7 @@ export default function RequestTripScreen({ navigation }) {
 
     const coordinates = decodePolyline(result.encodedPolyline);
     setDirectionsRoute(coordinates);
+    setEncodedPolyline(result.encodedPolyline);
 
     if (coordinates.length > 0) {
       mapRef.current?.fitToCoordinates(coordinates, {
@@ -141,7 +155,7 @@ export default function RequestTripScreen({ navigation }) {
         (await fetchDirections(
           originLocation,
           destinationLocation,
-          GOOGLE_PLACES_API_KEY
+          GOOGLE_PLACES_API_KEY,
         ));
 
       if (!result?.distance || !result?.duration) {
@@ -168,7 +182,7 @@ export default function RequestTripScreen({ navigation }) {
   };
 
   const selectedVehicleOption = VEHICLE_OPTIONS.find(
-    (v) => v.id === selectedVehicle
+    (v) => v.id === selectedVehicle,
   );
 
   const resetTripForm = () => {
@@ -177,6 +191,7 @@ export default function RequestTripScreen({ navigation }) {
     setDestinationAddress("");
     setDestinationLocation(null);
     setDirectionsRoute([]);
+    setEncodedPolyline(null);
     setTimeAndDistance(null);
     setBaseFare(null);
     setSelectedVehicle("economico");
@@ -189,9 +204,7 @@ export default function RequestTripScreen({ navigation }) {
       return;
     }
 
-    const price = Math.round(
-      getVehicleFare(selectedVehicleOption.multiplier)
-    );
+    const price = Math.round(getVehicleFare(selectedVehicleOption.multiplier));
 
     dispatch(
       setActiveTrip({
@@ -204,14 +217,23 @@ export default function RequestTripScreen({ navigation }) {
         status: "requested",
         paymentStatus: "pending",
         createdAt: Date.now(),
-      })
+      }),
     );
     setShowVehicleModal(false);
   };
 
+  const tripActive =
+    activeTrip?.status === "requested" || activeTrip?.status === "in_progress";
+  const { driverPosition, driverHeading, arrived } = useDriverSimulation(
+    originLocation,
+    tripActive,
+    GOOGLE_PLACES_API_KEY,
+  );
+
   const handleCloseVehicleModal = () => {
     setShowVehicleModal(false);
     setDirectionsRoute([]);
+    setEncodedPolyline(null);
     setTimeAndDistance(null);
     setBaseFare(null);
   };
@@ -247,7 +269,7 @@ export default function RequestTripScreen({ navigation }) {
       Alert.alert(
         "Pago no disponible",
         error.message ||
-          "No se pudo abrir Mercado Pago. Verifica que el backend Express este activo."
+          "No se pudo abrir Mercado Pago. Verifica que el backend Express este activo.",
       );
     } finally {
       setPaying(false);
@@ -289,7 +311,7 @@ export default function RequestTripScreen({ navigation }) {
       console.log("FINISH TRIP ERROR:", error.message);
       Alert.alert(
         "No se pudo finalizar",
-        "Intenta de nuevo para guardar el viaje en el historial."
+        "Intenta de nuevo para guardar el viaje en el historial.",
       );
     } finally {
       setFinishingTrip(false);
@@ -314,8 +336,7 @@ export default function RequestTripScreen({ navigation }) {
       return;
     }
 
-    const address =
-      details?.formatted_address ?? data?.description ?? "";
+    const address = details?.formatted_address ?? data?.description ?? "";
 
     const coords = { latitude: lat, longitude: lng };
 
@@ -366,6 +387,16 @@ export default function RequestTripScreen({ navigation }) {
             pinColor="red"
           />
         )}
+        {driverPosition?.latitude != null &&
+          driverPosition?.longitude != null && (
+            <Marker
+              coordinate={driverPosition}
+              anchor={{ x: 0.5, y: 0.5 }}
+              flat={true}
+            >
+              <Ionicons name="car-sport" size={28} color="#1D9E75" />
+            </Marker>
+          )}
         {directionsRoute.length > 0 && (
           <Polyline
             coordinates={directionsRoute}
@@ -431,9 +462,7 @@ export default function RequestTripScreen({ navigation }) {
           <Text style={globalStyles.bodyText}>
             Vehiculo: {activeTrip.vehicleType}
           </Text>
-          <Text style={globalStyles.bodyText}>
-            Origen: {activeTrip.origin}
-          </Text>
+          <Text style={globalStyles.bodyText}>Origen: {activeTrip.origin}</Text>
           <Text style={globalStyles.bodyText}>
             Destino: {activeTrip.destination}
           </Text>
@@ -455,9 +484,7 @@ export default function RequestTripScreen({ navigation }) {
                 {finishingTrip ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={globalStyles.buttonText}>
-                    Finalizar viaje
-                  </Text>
+                  <Text style={globalStyles.buttonText}>Finalizar viaje</Text>
                 )}
               </TouchableOpacity>
             </>

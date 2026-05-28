@@ -388,7 +388,7 @@ export const globalStyles = StyleSheet.create({
     right: 16,
     bottom: 16,
     fontWeight: "700",
-    fontSize: 20,
+    fontSize: 18,
     color: "#303030",
   },
 

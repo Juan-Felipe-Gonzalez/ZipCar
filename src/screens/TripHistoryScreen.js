@@ -99,7 +99,7 @@ export default function TripHistoryScreen() {
                       globalStyles.cardTitleHighlight,
                     ]}
                   >
-                    Destino: {item.destination.slice(0, 45)}...
+                    Destino: {item.destination.slice(0, 48)}...
                   </Text>
                 </View>
                 <View style={globalStyles.infoRow}>

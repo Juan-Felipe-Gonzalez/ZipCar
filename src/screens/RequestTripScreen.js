@@ -7,6 +7,7 @@ import {
   Modal,
   Pressable,
   Alert,
+  Linking,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
@@ -46,6 +47,7 @@ export default function RequestTripScreen({ navigation }) {
   const [originLocation, setOriginLocation] = useState(null);
   const [destinationAddress, setDestinationAddress] = useState("");
   const [destinationLocation, setDestinationLocation] = useState(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState("economico");
   const [directionsRoute, setDirectionsRoute] = useState([]);
@@ -73,15 +75,32 @@ export default function RequestTripScreen({ navigation }) {
   }, [driverPosition]);
 
   const getCurrentLocation = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
 
-    if (status !== "granted") {
-      alert("Permiso de ubicación denegado");
-      return;
+      if (status !== "granted") {
+        setPermissionDenied(true);
+        return;
+      }
+
+      setPermissionDenied(false);
+      const currentLocation = await Location.getCurrentPositionAsync({});
+      setLocation(currentLocation.coords);
+    } catch (error) {
+      console.log("LOCATION ERROR:", error.message);
+      setPermissionDenied(true);
     }
+  };
 
-    const currentLocation = await Location.getCurrentPositionAsync({});
-    setLocation(currentLocation.coords);
+  const openLocationSettings = async () => {
+    try {
+      await Linking.openSettings();
+    } catch (error) {
+      Alert.alert(
+        "No se pudo abrir la configuración",
+        "Abre los ajustes de la app para permitir el acceso a la ubicación.",
+      );
+    }
   };
 
   const handleRequestTrip = async () => {
@@ -356,8 +375,33 @@ export default function RequestTripScreen({ navigation }) {
     return (
       <SafeAreaView style={globalStyles.safeArea}>
         <View style={globalStyles.emptyState}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={globalStyles.emptyText}>Cargando ubicación...</Text>
+          {permissionDenied ? (
+            <>
+              <Text style={globalStyles.emptyText}>
+                Necesitamos acceso a tu ubicación para mostrar el mapa.
+              </Text>
+              <TouchableOpacity
+                style={[globalStyles.button, { marginTop: 20 }]}
+                onPress={getCurrentLocation}
+              >
+                <Text style={globalStyles.buttonText}>Reintentar permiso</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  globalStyles.button,
+                  { marginTop: 12, backgroundColor: COLORS.primaryDark },
+                ]}
+                onPress={openLocationSettings}
+              >
+                <Text style={globalStyles.buttonText}>Abrir ajustes</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={globalStyles.emptyText}>Cargando la ubicación...</Text>
+            </>
+          )}
         </View>
       </SafeAreaView>
     );

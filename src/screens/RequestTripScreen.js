@@ -58,6 +58,7 @@ export default function RequestTripScreen({ navigation }) {
   const [loadingEstimate, setLoadingEstimate] = useState(false);
   const [paying, setPaying] = useState(false);
   const [finishingTrip, setFinishingTrip] = useState(false);
+  const lastRouteLocations = useRef({ origin: null, destination: null });
 
   useEffect(() => {
     getCurrentLocation();
@@ -73,6 +74,53 @@ export default function RequestTripScreen({ navigation }) {
       duration: 1000, // debe coincidir con el intervalMs del hook
     });
   }, [driverPosition]);
+
+  useEffect(() => {
+    if (
+      !originAddress ||
+      !destinationAddress ||
+      !originLocation ||
+      !destinationLocation
+    ) {
+      return;
+    }
+
+    const sameOrigin =
+      lastRouteLocations.current.origin?.latitude === originLocation.latitude &&
+      lastRouteLocations.current.origin?.longitude === originLocation.longitude;
+    const sameDestination =
+      lastRouteLocations.current.destination?.latitude ===
+        destinationLocation.latitude &&
+      lastRouteLocations.current.destination?.longitude ===
+        destinationLocation.longitude;
+
+    if (sameOrigin && sameDestination && directionsRoute.length > 0) {
+      return;
+    }
+
+    const loadRouteIfNeeded = async () => {
+      setDirectionsRoute([]);
+      setEncodedPolyline(null);
+      setLoadingRoute(true);
+      const result = await loadRoute();
+      setLoadingRoute(false);
+
+      if (result) {
+        lastRouteLocations.current = {
+          origin: originLocation,
+          destination: destinationLocation,
+        };
+      }
+    };
+
+    loadRouteIfNeeded();
+  }, [
+    originAddress,
+    destinationAddress,
+    originLocation,
+    destinationLocation,
+    directionsRoute.length,
+  ]);
 
   const getCurrentLocation = async () => {
     try {
@@ -399,7 +447,9 @@ export default function RequestTripScreen({ navigation }) {
           ) : (
             <>
               <ActivityIndicator size="large" color={COLORS.primary} />
-              <Text style={globalStyles.emptyText}>Cargando la ubicación...</Text>
+              <Text style={globalStyles.emptyText}>
+                Cargando la ubicación...
+              </Text>
             </>
           )}
         </View>
